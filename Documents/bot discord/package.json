@@ -1,0 +1,18 @@
+{
+  "name": "discord-boss-reminder",
+  "version": "1.0.0",
+  "description": "Discord bot that sends hourly boss spawn reminders.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  },
+  "overrides": {
+    "undici": "6.27.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
