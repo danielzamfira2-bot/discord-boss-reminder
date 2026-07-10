@@ -2,6 +2,10 @@ const { Client, GatewayIntentBits } = require("discord.js");
 
 const token = process.env.DISCORD_TOKEN;
 const channelId = process.env.DISCORD_CHANNEL_ID;
+const maxReminderMessages = Number.parseInt(
+  process.env.DISCORD_MAX_REMINDER_MESSAGES || "4",
+  10,
+);
 
 if (!token) {
   throw new Error("Missing DISCORD_TOKEN environment variable.");
@@ -9,6 +13,10 @@ if (!token) {
 
 if (!channelId) {
   throw new Error("Missing DISCORD_CHANNEL_ID environment variable.");
+}
+
+if (!Number.isInteger(maxReminderMessages) || maxReminderMessages < 2) {
+  throw new Error("DISCORD_MAX_REMINDER_MESSAGES must be a number greater than or equal to 2.");
 }
 
 const client = new Client({
@@ -28,6 +36,27 @@ async function sendReminder(text) {
     content: `@everyone ${text}`,
     allowedMentions: { parse: ["everyone"] },
   });
+
+  await cleanupOldReminders(channel);
+}
+
+async function cleanupOldReminders(channel) {
+  const messages = await channel.messages.fetch({ limit: 100 });
+  const reminderMessages = messages
+    .filter((message) => message.author.id === client.user.id)
+    .sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+
+  const messagesToDelete = reminderMessages
+    .toJSON()
+    .slice(maxReminderMessages);
+
+  for (const message of messagesToDelete) {
+    try {
+      await message.delete();
+    } catch (error) {
+      console.error(`Failed to delete old reminder ${message.id}:`, error);
+    }
+  }
 }
 
 async function checkSchedule() {
