@@ -16,6 +16,8 @@ Botul are si comenzi slash pentru harti:
 
 Daca setezi `DISCORD_IMAGE_CHANNEL_ID`, pozele vor fi trimise mereu in acel canal. Daca nu, pozele sunt trimise in canalul unde este folosita comanda.
 
+Botul trimite si remindere pentru evenimentele din calendar cu 10 minute inainte de start, in canalul setat prin `DISCORD_EVENT_CHANNEL_ID`. Calendarul este calculat dupa ora Germaniei, prin `DISCORD_EVENT_TIMEZONE=Europe/Berlin`, iar ora din mesaj este afisata automat de Discord pe fusul orar al fiecarui membru.
+
 ## Configurare bot Discord
 
 1. Intra in Discord Developer Portal si creeaza o aplicatie noua.
@@ -45,6 +47,8 @@ DISCORD_TOKEN=tokenul_botului_tau
 DISCORD_CHANNEL_ID=id-ul_canalului
 DISCORD_MAX_REMINDER_MESSAGES=4
 DISCORD_IMAGE_CHANNEL_ID=id-ul_canalului_pentru_poze
+DISCORD_EVENT_CHANNEL_ID=id-ul_canalului_pentru_evenimente
+DISCORD_EVENT_TIMEZONE=Europe/Berlin
 ```
 
 Porneste botul:
@@ -62,6 +66,8 @@ npm start
    - `DISCORD_CHANNEL_ID`
    - `DISCORD_MAX_REMINDER_MESSAGES` optional, implicit `4`
    - `DISCORD_IMAGE_CHANNEL_ID` optional, canalul unde se trimit pozele
+   - `DISCORD_EVENT_CHANNEL_ID` optional, canalul unde se trimit reminderele pentru evenimente
+   - `DISCORD_EVENT_TIMEZONE` optional, implicit `Europe/Berlin`
 4. Railway va rula automat comanda:
 
 ```bash

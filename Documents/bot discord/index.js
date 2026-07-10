@@ -9,6 +9,8 @@ const {
 const token = process.env.DISCORD_TOKEN;
 const channelId = process.env.DISCORD_CHANNEL_ID;
 const imageChannelId = process.env.DISCORD_IMAGE_CHANNEL_ID;
+const eventChannelId = process.env.DISCORD_EVENT_CHANNEL_ID || channelId;
+const eventTimezone = process.env.DISCORD_EVENT_TIMEZONE || "Europe/Berlin";
 const maxReminderMessages = Number.parseInt(
   process.env.DISCORD_MAX_REMINDER_MESSAGES || "4",
   10,
@@ -31,6 +33,7 @@ const client = new Client({
 });
 
 let lastSentKey = null;
+let lastSentEventKeys = new Set();
 
 const bossMapCommands = [
   {
@@ -58,6 +61,61 @@ const bossMapCommands = [
     imagePath: path.join(__dirname, "images", "valea-seungryong.png"),
   },
 ];
+
+const weekdays = [
+  "SUNDAY",
+  "MONDAY",
+  "TUESDAY",
+  "WEDNESDAY",
+  "THURSDAY",
+  "FRIDAY",
+  "SATURDAY",
+];
+
+const eventSchedule = {
+  MONDAY: [
+    { name: "Concentrated Reading", start: "14:00" },
+    { name: "Cor Daemonis", start: "19:00" },
+    { name: "Tiger Coin", start: "00:00" },
+    { name: "Jigsaw Event", start: "19:00" },
+  ],
+  TUESDAY: [
+    { name: "Researcher Elixir", start: "14:00" },
+    { name: "Exorcism Scroll", start: "19:00" },
+    { name: "Fine Cloth", start: "00:00" },
+    { name: "Mining Event", start: "19:00" },
+  ],
+  WEDNESDAY: [
+    { name: "Blacksmith's Stone", start: "14:00" },
+    { name: "Time Spiral (%50)", start: "19:00" },
+    { name: "Passage Ticket", start: "00:00" },
+    { name: "Metin Fever", start: "00:00" },
+  ],
+  THURSDAY: [
+    { name: "Sun Elixir", start: "14:00" },
+    { name: "Fodder", start: "19:00" },
+    { name: "Inventory Expansion", start: "00:00" },
+    { name: "Hexagonal Event", start: "19:00" },
+  ],
+  FRIDAY: [
+    { name: "Small Orison", start: "14:00" },
+    { name: "Robin (loot)", start: "19:00" },
+    { name: "Pet Book Chest", start: "00:00" },
+    { name: "Moonlight Event", start: "19:00" },
+  ],
+  SATURDAY: [
+    { name: "Tasty Treats", start: "14:00" },
+    { name: "Flame of the Dragon", start: "19:00" },
+    { name: "Shard Chest", start: "00:00" },
+    { name: "Football Event", start: "19:00" },
+  ],
+  SUNDAY: [
+    { name: "Tiger Coin", start: "14:00" },
+    { name: "Cor Daemonis (noble)", start: "19:00" },
+    { name: "Cor Daemonis (cut)", start: "00:00" },
+    { name: "Medal Event", start: "00:00" },
+  ],
+};
 
 async function registerCommands() {
   await client.application.commands.set(
@@ -99,6 +157,176 @@ async function cleanupOldReminders(channel) {
       await message.delete();
     } catch (error) {
       console.error(`Failed to delete old reminder ${message.id}:`, error);
+    }
+  }
+}
+
+function getLocalDateParts(date) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: eventTimezone,
+    weekday: "long",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value]),
+  );
+
+  return {
+    dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+    year: Number.parseInt(parts.year, 10),
+    month: Number.parseInt(parts.month, 10),
+    day: Number.parseInt(parts.day, 10),
+    weekday: parts.weekday.toUpperCase(),
+    hour: Number.parseInt(parts.hour, 10),
+    minute: Number.parseInt(parts.minute, 10),
+  };
+}
+
+function addDaysToDateKey(dateKey, days) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  const nextYear = date.getUTCFullYear();
+  const nextMonth = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const nextDay = String(date.getUTCDate()).padStart(2, "0");
+
+  return `${nextYear}-${nextMonth}-${nextDay}`;
+}
+
+function getTimezoneOffsetMs(timeZone, date) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value]),
+  );
+
+  const localAsUtc = Date.UTC(
+    Number.parseInt(parts.year, 10),
+    Number.parseInt(parts.month, 10) - 1,
+    Number.parseInt(parts.day, 10),
+    Number.parseInt(parts.hour, 10),
+    Number.parseInt(parts.minute, 10),
+    Number.parseInt(parts.second, 10),
+  );
+
+  return localAsUtc - date.getTime();
+}
+
+function getUtcDateFromZonedTime(dateKey, time, timeZone) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  let utcTime = Date.UTC(year, month - 1, day, hour, minute);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const offset = getTimezoneOffsetMs(timeZone, new Date(utcTime));
+    utcTime = Date.UTC(year, month - 1, day, hour, minute) - offset;
+  }
+
+  return new Date(utcTime);
+}
+
+function getReminderTime(eventStart) {
+  const [eventHour, eventMinute] = eventStart.split(":").map(Number);
+  let totalMinutes = eventHour * 60 + eventMinute - 10;
+  let previousDay = false;
+
+  if (totalMinutes < 0) {
+    totalMinutes += 24 * 60;
+    previousDay = true;
+  }
+
+  return {
+    hour: Math.floor(totalMinutes / 60),
+    minute: totalMinutes % 60,
+    previousDay,
+  };
+}
+
+function getPreviousWeekday(weekday) {
+  const weekdayIndex = weekdays.indexOf(weekday);
+  return weekdays[(weekdayIndex + 6) % 7];
+}
+
+function getUpcomingEventsForReminder(localParts) {
+  const matchingEvents = [];
+
+  for (const [eventWeekday, events] of Object.entries(eventSchedule)) {
+    for (const event of events) {
+      const reminderTime = getReminderTime(event.start);
+      const reminderWeekday = reminderTime.previousDay
+        ? getPreviousWeekday(eventWeekday)
+        : eventWeekday;
+
+      if (
+        reminderWeekday === localParts.weekday &&
+        reminderTime.hour === localParts.hour &&
+        reminderTime.minute === localParts.minute
+      ) {
+        const eventDateKey = reminderTime.previousDay
+          ? addDaysToDateKey(localParts.dateKey, 1)
+          : localParts.dateKey;
+
+        matchingEvents.push({ ...event, dateKey: eventDateKey, weekday: eventWeekday });
+      }
+    }
+  }
+
+  return matchingEvents;
+}
+
+async function sendEventReminder(event) {
+  const channel = await client.channels.fetch(eventChannelId);
+
+  if (!channel || !channel.isTextBased()) {
+    throw new Error(`Channel ${eventChannelId} was not found or is not text-based.`);
+  }
+
+  const eventStartTimestamp = Math.floor(
+    getUtcDateFromZonedTime(event.dateKey, event.start, eventTimezone).getTime() / 1000,
+  );
+
+  await channel.send({
+    content: `@everyone ${event.name} incepe in 10 minute! Ora ta: <t:${eventStartTimestamp}:t> (<t:${eventStartTimestamp}:R>)`,
+    allowedMentions: { parse: ["everyone"] },
+  });
+}
+
+async function checkEventSchedule() {
+  const localParts = getLocalDateParts(new Date());
+  const eventKeyPrefix = `${localParts.dateKey}-${localParts.hour}-${localParts.minute}`;
+
+  if (lastSentEventKeys.size > 200) {
+    lastSentEventKeys = new Set();
+  }
+
+  for (const event of getUpcomingEventsForReminder(localParts)) {
+    const eventKey = `${eventKeyPrefix}-${event.weekday}-${event.start}-${event.name}`;
+
+    if (lastSentEventKeys.has(eventKey)) {
+      continue;
+    }
+
+    lastSentEventKeys.add(eventKey);
+
+    try {
+      await sendEventReminder(event);
+      console.log(`Sent event reminder for ${event.name}.`);
+    } catch (error) {
+      console.error(`Failed to send event reminder for ${event.name}:`, error);
     }
   }
 }
@@ -165,7 +393,9 @@ client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}.`);
   await registerCommands();
   checkSchedule();
+  checkEventSchedule();
   setInterval(checkSchedule, 15 * 1000);
+  setInterval(checkEventSchedule, 15 * 1000);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
