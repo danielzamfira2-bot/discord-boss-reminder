@@ -34,6 +34,7 @@ const client = new Client({
 
 let lastSentKey = null;
 let lastSentEventKeys = new Set();
+const upcomingEventMessageIds = new Map();
 
 const bossMapCommands = [
   {
@@ -239,20 +240,27 @@ function getUtcDateFromZonedTime(dateKey, time, timeZone) {
   return new Date(utcTime);
 }
 
-function getReminderTime(eventStart) {
+function getTriggerTime(eventStart, minutesFromStart) {
   const [eventHour, eventMinute] = eventStart.split(":").map(Number);
-  let totalMinutes = eventHour * 60 + eventMinute - 10;
+  let totalMinutes = eventHour * 60 + eventMinute + minutesFromStart;
   let previousDay = false;
+  let nextDay = false;
 
   if (totalMinutes < 0) {
     totalMinutes += 24 * 60;
     previousDay = true;
   }
 
+  if (totalMinutes >= 24 * 60) {
+    totalMinutes -= 24 * 60;
+    nextDay = true;
+  }
+
   return {
     hour: Math.floor(totalMinutes / 60),
     minute: totalMinutes % 60,
     previousDay,
+    nextDay,
   };
 }
 
@@ -261,23 +269,32 @@ function getPreviousWeekday(weekday) {
   return weekdays[(weekdayIndex + 6) % 7];
 }
 
-function getUpcomingEventsForReminder(localParts) {
+function getNextWeekday(weekday) {
+  const weekdayIndex = weekdays.indexOf(weekday);
+  return weekdays[(weekdayIndex + 1) % 7];
+}
+
+function getEventsForTrigger(localParts, minutesFromStart) {
   const matchingEvents = [];
 
   for (const [eventWeekday, events] of Object.entries(eventSchedule)) {
     for (const event of events) {
-      const reminderTime = getReminderTime(event.start);
-      const reminderWeekday = reminderTime.previousDay
+      const triggerTime = getTriggerTime(event.start, minutesFromStart);
+      const triggerWeekday = triggerTime.previousDay
         ? getPreviousWeekday(eventWeekday)
+        : triggerTime.nextDay
+          ? getNextWeekday(eventWeekday)
         : eventWeekday;
 
       if (
-        reminderWeekday === localParts.weekday &&
-        reminderTime.hour === localParts.hour &&
-        reminderTime.minute === localParts.minute
+        triggerWeekday === localParts.weekday &&
+        triggerTime.hour === localParts.hour &&
+        triggerTime.minute === localParts.minute
       ) {
-        const eventDateKey = reminderTime.previousDay
+        const eventDateKey = triggerTime.previousDay
           ? addDaysToDateKey(localParts.dateKey, 1)
+          : triggerTime.nextDay
+            ? addDaysToDateKey(localParts.dateKey, -1)
           : localParts.dateKey;
 
         matchingEvents.push({ ...event, dateKey: eventDateKey, weekday: eventWeekday });
@@ -288,19 +305,78 @@ function getUpcomingEventsForReminder(localParts) {
   return matchingEvents;
 }
 
-async function sendEventReminder(event) {
+function getEventStorageKey(event) {
+  return `${event.dateKey}-${event.weekday}-${event.start}-${event.name}`;
+}
+
+function getEventStartTimestamp(event) {
+  return Math.floor(
+    getUtcDateFromZonedTime(event.dateKey, event.start, eventTimezone).getTime() / 1000,
+  );
+}
+
+async function getEventChannel() {
   const channel = await client.channels.fetch(eventChannelId);
 
   if (!channel || !channel.isTextBased()) {
     throw new Error(`Channel ${eventChannelId} was not found or is not text-based.`);
   }
 
-  const eventStartTimestamp = Math.floor(
-    getUtcDateFromZonedTime(event.dateKey, event.start, eventTimezone).getTime() / 1000,
+  return channel;
+}
+
+async function sendUpcomingEventReminder(event) {
+  const channel = await getEventChannel();
+  const eventStartTimestamp = getEventStartTimestamp(event);
+
+  const message = await channel.send({
+    content: `@everyone ${event.name} urmeaza sa inceapa in 10 minute! Ora ta: <t:${eventStartTimestamp}:t> (<t:${eventStartTimestamp}:R>)`,
+    allowedMentions: { parse: ["everyone"] },
+  });
+
+  upcomingEventMessageIds.set(getEventStorageKey(event), message.id);
+}
+
+async function deleteUpcomingEventReminder(channel, event) {
+  const eventKey = getEventStorageKey(event);
+  const messageId = upcomingEventMessageIds.get(eventKey);
+
+  if (messageId) {
+    try {
+      const message = await channel.messages.fetch(messageId);
+      await message.delete();
+      upcomingEventMessageIds.delete(eventKey);
+      return;
+    } catch (error) {
+      console.error(`Failed to delete stored upcoming reminder for ${event.name}:`, error);
+    }
+  }
+
+  const messages = await channel.messages.fetch({ limit: 100 });
+  const oldUpcomingMessages = messages.filter(
+    (message) =>
+      message.author.id === client.user.id &&
+      message.content.includes(event.name) &&
+      message.content.includes("urmeaza sa inceapa"),
   );
 
+  for (const message of oldUpcomingMessages.values()) {
+    try {
+      await message.delete();
+    } catch (error) {
+      console.error(`Failed to delete old upcoming reminder ${message.id}:`, error);
+    }
+  }
+}
+
+async function sendActiveEventReminder(event) {
+  const channel = await getEventChannel();
+  const eventStartTimestamp = getEventStartTimestamp(event);
+
+  await deleteUpcomingEventReminder(channel, event);
+
   await channel.send({
-    content: `@everyone ${event.name} incepe in 10 minute! Ora ta: <t:${eventStartTimestamp}:t> (<t:${eventStartTimestamp}:R>)`,
+    content: `@everyone ${event.name} este activ! Ora ta: <t:${eventStartTimestamp}:t>`,
     allowedMentions: { parse: ["everyone"] },
   });
 }
@@ -313,8 +389,8 @@ async function checkEventSchedule() {
     lastSentEventKeys = new Set();
   }
 
-  for (const event of getUpcomingEventsForReminder(localParts)) {
-    const eventKey = `${eventKeyPrefix}-${event.weekday}-${event.start}-${event.name}`;
+  for (const event of getEventsForTrigger(localParts, -10)) {
+    const eventKey = `${eventKeyPrefix}-upcoming-${event.weekday}-${event.start}-${event.name}`;
 
     if (lastSentEventKeys.has(eventKey)) {
       continue;
@@ -323,10 +399,27 @@ async function checkEventSchedule() {
     lastSentEventKeys.add(eventKey);
 
     try {
-      await sendEventReminder(event);
-      console.log(`Sent event reminder for ${event.name}.`);
+      await sendUpcomingEventReminder(event);
+      console.log(`Sent upcoming event reminder for ${event.name}.`);
     } catch (error) {
-      console.error(`Failed to send event reminder for ${event.name}:`, error);
+      console.error(`Failed to send upcoming event reminder for ${event.name}:`, error);
+    }
+  }
+
+  for (const event of getEventsForTrigger(localParts, 0)) {
+    const eventKey = `${eventKeyPrefix}-active-${event.weekday}-${event.start}-${event.name}`;
+
+    if (lastSentEventKeys.has(eventKey)) {
+      continue;
+    }
+
+    lastSentEventKeys.add(eventKey);
+
+    try {
+      await sendActiveEventReminder(event);
+      console.log(`Sent active event reminder for ${event.name}.`);
+    } catch (error) {
+      console.error(`Failed to send active event reminder for ${event.name}:`, error);
     }
   }
 }

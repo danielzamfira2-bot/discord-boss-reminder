@@ -16,7 +16,10 @@ Botul are si comenzi slash pentru harti:
 
 Daca setezi `DISCORD_IMAGE_CHANNEL_ID`, pozele vor fi trimise mereu in acel canal. Daca nu, pozele sunt trimise in canalul unde este folosita comanda.
 
-Botul trimite si remindere pentru evenimentele din calendar cu 10 minute inainte de start, in canalul setat prin `DISCORD_EVENT_CHANNEL_ID`. Calendarul este calculat dupa ora Germaniei, prin `DISCORD_EVENT_TIMEZONE=Europe/Berlin`, iar ora din mesaj este afisata automat de Discord pe fusul orar al fiecarui membru.
+Botul trimite si remindere pentru evenimentele din calendar, in canalul setat prin `DISCORD_EVENT_CHANNEL_ID`. Calendarul este calculat dupa ora Germaniei, prin `DISCORD_EVENT_TIMEZONE=Europe/Berlin`, iar ora din mesaj este afisata automat de Discord pe fusul orar al fiecarui membru.
+
+- cu 10 minute inainte: `@everyone Evenimentul urmeaza sa inceapa in 10 minute`
+- la ora de start: sterge mesajul de mai sus si trimite `@everyone Evenimentul este activ!`
 
 ## Configurare bot Discord
 
