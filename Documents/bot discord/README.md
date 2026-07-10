@@ -20,6 +20,7 @@ Botul trimite si remindere pentru evenimentele din calendar, in canalul setat pr
 
 - cu 10 minute inainte: `@everyone Evenimentul urmeaza sa inceapa in 10 minute`
 - la ora de start: sterge mesajul de mai sus si trimite `@everyone Evenimentul este activ!`
+- evenimentele din coloana `00:00-03:00` sunt tratate ca noaptea de dupa ziua din randul respectiv
 
 ## Configurare bot Discord
 

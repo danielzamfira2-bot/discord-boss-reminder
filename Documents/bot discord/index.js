@@ -75,45 +75,45 @@ const weekdays = [
 
 const eventSchedule = {
   MONDAY: [
-    { name: "Concentrated Reading", start: "14:00" },
+    { name: "Citit Concentrat", start: "14:00" },
     { name: "Cor Daemonis", start: "19:00" },
-    { name: "Tiger Coin", start: "00:00" },
+    { name: "Monede Tigru", start: "00:00", dayOffset: 1 },
     { name: "Jigsaw Event", start: "19:00" },
   ],
   TUESDAY: [
-    { name: "Researcher Elixir", start: "14:00" },
-    { name: "Exorcism Scroll", start: "19:00" },
-    { name: "Fine Cloth", start: "00:00" },
+    { name: "Elixirul Explorarii", start: "14:00" },
+    { name: "Pergamentul Exorcizarii", start: "19:00" },
+    { name: "Panza fina", start: "00:00", dayOffset: 1 },
     { name: "Mining Event", start: "19:00" },
   ],
   WEDNESDAY: [
-    { name: "Blacksmith's Stone", start: "14:00" },
-    { name: "Time Spiral (%50)", start: "19:00" },
-    { name: "Passage Ticket", start: "00:00" },
+    { name: "Piatra Fierarului", start: "14:00" },
+    { name: "Spirala Timpului (%50)", start: "19:00" },
+    { name: "Permis de trecere", start: "00:00", dayOffset: 1 },
     { name: "Metin Fever", start: "00:00" },
   ],
   THURSDAY: [
-    { name: "Sun Elixir", start: "14:00" },
-    { name: "Fodder", start: "19:00" },
-    { name: "Inventory Expansion", start: "00:00" },
+    { name: "Elixirul Soarelui", start: "14:00" },
+    { name: "Furaj", start: "19:00" },
+    { name: "Extindere Inventar", start: "00:00", dayOffset: 1 },
     { name: "Hexagonal Event", start: "19:00" },
   ],
   FRIDAY: [
-    { name: "Small Orison", start: "14:00" },
+    { name: "Orison mic", start: "14:00" },
     { name: "Robin (loot)", start: "19:00" },
-    { name: "Pet Book Chest", start: "00:00" },
+    { name: "Cufar Carte Insotitor", start: "00:00", dayOffset: 1 },
     { name: "Moonlight Event", start: "19:00" },
   ],
   SATURDAY: [
-    { name: "Tasty Treats", start: "14:00" },
-    { name: "Flame of the Dragon", start: "19:00" },
-    { name: "Shard Chest", start: "00:00" },
+    { name: "Biscuit Cu Proteine", start: "14:00" },
+    { name: "Flacara Dragon", start: "19:00" },
+    { name: "Cufar Marcasita", start: "00:00", dayOffset: 1 },
     { name: "Football Event", start: "19:00" },
   ],
   SUNDAY: [
-    { name: "Tiger Coin", start: "14:00" },
+    { name: "Monede Tigru", start: "14:00" },
     { name: "Cor Daemonis (noble)", start: "19:00" },
-    { name: "Cor Daemonis (cut)", start: "00:00" },
+    { name: "Cor Daemonis (cut)", start: "00:00", dayOffset: 1 },
     { name: "Medal Event", start: "00:00" },
   ],
 };
@@ -274,28 +274,32 @@ function getNextWeekday(weekday) {
   return weekdays[(weekdayIndex + 1) % 7];
 }
 
+function shiftWeekday(weekday, days) {
+  const weekdayIndex = weekdays.indexOf(weekday);
+  return weekdays[(weekdayIndex + days + 700) % 7];
+}
+
 function getEventsForTrigger(localParts, minutesFromStart) {
   const matchingEvents = [];
 
   for (const [eventWeekday, events] of Object.entries(eventSchedule)) {
     for (const event of events) {
       const triggerTime = getTriggerTime(event.start, minutesFromStart);
-      const triggerWeekday = triggerTime.previousDay
-        ? getPreviousWeekday(eventWeekday)
-        : triggerTime.nextDay
-          ? getNextWeekday(eventWeekday)
-        : eventWeekday;
+      const triggerDayOffset =
+        (event.dayOffset || 0) +
+        (triggerTime.previousDay ? -1 : 0) +
+        (triggerTime.nextDay ? 1 : 0);
+      const triggerWeekday = shiftWeekday(eventWeekday, triggerDayOffset);
 
       if (
         triggerWeekday === localParts.weekday &&
         triggerTime.hour === localParts.hour &&
         triggerTime.minute === localParts.minute
       ) {
-        const eventDateKey = triggerTime.previousDay
-          ? addDaysToDateKey(localParts.dateKey, 1)
-          : triggerTime.nextDay
-            ? addDaysToDateKey(localParts.dateKey, -1)
-          : localParts.dateKey;
+        const eventDateKey = addDaysToDateKey(
+          localParts.dateKey,
+          (event.dayOffset || 0) - triggerDayOffset,
+        );
 
         matchingEvents.push({ ...event, dateKey: eventDateKey, weekday: eventWeekday });
       }
